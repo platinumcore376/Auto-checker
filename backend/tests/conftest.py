@@ -56,8 +56,13 @@ def mock_external_ml_and_cloud(monkeypatch):
 
 @pytest.fixture
 def test_client():
-    """Returns a FastAPI TestClient configured for AutoChecker."""
+    """Returns an authenticated FastAPI TestClient configured for AutoChecker."""
     from fastapi.testclient import TestClient
     from server import app
+    from auth import create_access_token
+    import config
+
     with TestClient(app) as client:
+        token = create_access_token({"sub": "admin@rait.ac.in"})
+        client.cookies.set(config.COOKIE_NAME, token)
         yield client

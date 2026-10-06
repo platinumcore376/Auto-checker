@@ -1,6 +1,57 @@
 import os
 from typing import List, Optional
 
+def _load_env_file():
+    """Lightweight .env loader without external dependencies."""
+    candidates = [
+        os.path.join(os.path.dirname(__file__), "..", ".env"),
+        os.path.join(os.path.dirname(__file__), ".env"),
+        ".env",
+    ]
+    for env_path in candidates:
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip("'\"")
+                        if k not in os.environ:
+                            os.environ[k] = v
+            break
+
+_load_env_file()
+
+# ==============================================================================
+# Authentication & Security Configurations (Phase 4 / SEC-01, SEC-02)
+# ==============================================================================
+AUTH_USERNAME: str = os.getenv("AUTH_USERNAME", "admin@rait.ac.in")
+AUTH_PASSWORD_HASH: Optional[str] = os.getenv("AUTH_PASSWORD_HASH", None)
+JWT_SECRET: Optional[str] = os.getenv("JWT_SECRET", None)
+JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
+COOKIE_NAME: str = "autochecker_token"
+
+def validate_auth_config():
+    """
+    Refuses application startup if secrets are missing or insecure (Phase 4).
+    Never ships a default JWT secret.
+    """
+    if not AUTH_PASSWORD_HASH:
+        raise RuntimeError(
+            "AUTH_PASSWORD_HASH is not set in environment or .env file. "
+            "Generate one using: python scripts/make_password_hash.py"
+        )
+    if not JWT_SECRET:
+        raise RuntimeError(
+            "JWT_SECRET is not set in environment or .env file. "
+            "Please provide a secure secret of at least 32 characters."
+        )
+    if len(JWT_SECRET) < 32:
+        raise RuntimeError(
+            f"JWT_SECRET must be at least 32 characters long for security (current length: {len(JWT_SECRET)})."
+        )
+
 # ==============================================================================
 # Model Configurations
 # ==============================================================================

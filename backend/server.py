@@ -9,13 +9,14 @@ from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pdf2image import convert_from_bytes, pdfinfo_from_bytes
 from PIL import Image
 
 import config
+from auth import auth_router, require_user
 from Utils.image_similarity import image_similarity, load_clip_model
 from Utils.ocr import ocr_from_image
 from Utils.segmentation import (
@@ -32,9 +33,12 @@ logger = logging.getLogger("autochecker.server")
 async def lifespan(app: FastAPI):
     """
     Application lifespan manager (S3 / PERF-01).
-    Warms up ML models once at startup.
+    Validates auth secrets and warms up ML models once at startup.
     """
     logger.info("Initializing AutoChecker backend...")
+    # Validate auth configuration (Phase 4 / SEC-01, SEC-02)
+    config.validate_auth_config()
+
     models_status = {"sentence_transformer": False, "clip": False}
     try:
         load_sentence_transformer()
@@ -54,6 +58,7 @@ async def lifespan(app: FastAPI):
     logger.info("AutoChecker backend shutting down.")
 
 app = FastAPI(title="AutoChecker Backend", lifespan=lifespan)
+app.include_router(auth_router)
 
 # CORS configuration (SEC-04)
 app.add_middleware(
@@ -118,6 +123,7 @@ async def similarity(
     answer_key_text: str = Form(...),
     answer_key_diagram: UploadFile = File(...),
     answer_sheets: List[UploadFile] = File(...),
+    current_user: dict = Depends(require_user),
 ):
     """
     Evaluates student answer sheets against textual and diagrammatic keys.

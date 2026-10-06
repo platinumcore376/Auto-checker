@@ -1,45 +1,82 @@
-import { useState } from 'react'
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-export default function LoginPage(){
+export default function LoginPage() {
     const navigate = useNavigate();
 
-    const [username, setUsername] = useState('')
-    const [password, setPassword] = useState('')
-    const [error, setError] = useState('')
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
 
     const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        if(username === 'admin@rait.ac.in' && password === 'admin'){
-            localStorage.setItem('username', username);
-            localStorage.setItem('password', password);
-            navigate('/home');
-        }
-        else{
-            setError('Invalid credentials');
+        setError('');
+        setLoading(true);
+
+        try {
+            const response = await fetch('http://localhost:8000/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include', // Receives HttpOnly cookie from server
+                body: JSON.stringify({ username, password }),
+            });
+
+            if (response.ok) {
+                navigate('/home');
+            } else {
+                const data = await response.json().catch(() => ({}));
+                setError(data.detail || 'Invalid username or password.');
+            }
+        } catch (err) {
+            setError('Cannot reach authentication server.');
+        } finally {
+            setLoading(false);
         }
     };
 
     return (
-        <>
-            <div className="w-screen h-screen flex items-center justify-center bg-white">
-                <div className="flex bg-white h-3/4 w-1/2 rounded-2xl">
-                    <div className="h-full w-1/2 bg-dy-red rounded-l-2xl">
-                        <form onSubmit={handleLogin} className="flex flex-col justify-center items-center h-full text-black">
-                            <h1 className="text-4xl font-bold mb-6 text-white">Login</h1>
-                            <input type="email" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} className="w-3/4 h-10 mb-3 border border-gray-400 rounded-md px-2"/>
-                            <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-3/4 h-10 mb-3 border border-gray-400 rounded-md px-2"/>
-                            <button type="submit" className="w-3/4 h-10 bg-dy-peach font-semibold text-xl text-dy-red rounded-md hover:text-white transition-colors ease-in-out duration-300">Login</button>
-                            {error?<p className='pt-2 text-white'>Invalid credentials</p>:null}
-                        </form>
-                        
-                    </div>
-                    <div className="h-full w-1/2 rounded-r-2xl bg-login flex items-center justify-center">
-                        <h1 className='text-dy-red font-bold text-3xl'> AutoCorrector </h1>
-                    </div>
-
+        <div className="w-screen h-screen flex items-center justify-center bg-white">
+            <div className="flex bg-white h-3/4 w-1/2 rounded-2xl shadow-xl border border-gray-100">
+                <div className="h-full w-1/2 bg-dy-red rounded-l-2xl">
+                    <form onSubmit={handleLogin} className="flex flex-col justify-center items-center h-full text-black px-6">
+                        <h1 className="text-4xl font-bold mb-6 text-white">Login</h1>
+                        <input
+                            type="email"
+                            placeholder="Email address"
+                            required
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            className="w-full h-11 mb-3 border border-gray-300 rounded-md px-3 focus:outline-none focus:ring-2 focus:ring-dy-peach"
+                        />
+                        <input
+                            type="password"
+                            placeholder="Password"
+                            required
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            className="w-full h-11 mb-4 border border-gray-300 rounded-md px-3 focus:outline-none focus:ring-2 focus:ring-dy-peach"
+                        />
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className={`w-full h-11 bg-dy-peach font-semibold text-lg text-dy-red rounded-md transition-colors duration-200 ${
+                                loading ? "opacity-50 cursor-not-allowed" : "hover:text-white hover:bg-opacity-90"
+                            }`}
+                        >
+                            {loading ? "Authenticating..." : "Login"}
+                        </button>
+                        {error && (
+                            <p className="pt-3 text-white text-sm text-center font-medium bg-red-800 bg-opacity-40 px-3 py-1 rounded mt-2 w-full">
+                                {error}
+                            </p>
+                        )}
+                    </form>
+                </div>
+                <div className="h-full w-1/2 rounded-r-2xl bg-login flex items-center justify-center">
+                    <h1 className="text-dy-red font-bold text-3xl">AutoChecker</h1>
                 </div>
             </div>
-        </>
-    )
+        </div>
+    );
 }

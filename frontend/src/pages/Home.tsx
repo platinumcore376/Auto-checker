@@ -1,19 +1,31 @@
 import React, { useState, useRef } from "react";
-import axios from "axios"; // Ensure axios is imported
+import axios from "axios";
+import { useNavigate } from "react-router-dom";
 
 export default function AnswerSheet() {
+    const navigate = useNavigate();
     const [answerKey, setAnswerKey] = useState<string>("");
     const [fileNames, setFileNames] = useState<string[]>([]);
     const [files, setFiles] = useState<File[]>([]);
     const [similarityData, setSimilarityData] = useState<Record<number, [number, number, string, string, string]>>({});
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [marks, setMarks] = useState<number>(0);
-    const [corrected, setCorrected] = useState(false)
+    const [corrected, setCorrected] = useState(false);
     const [image, setImage] = useState<File | null>(null);
     const [imageName, setImageName] = useState<string | null>("Add Image");
-    const [openedSheet, setOpenedSheet] = useState<number|null>(null)
+    const [openedSheet, setOpenedSheet] = useState<number|null>(null);
     const [textWeight, setTextWeight] = useState<number>(0.5); // default 50%
     const [diagramWeight, setDiagramWeight] = useState<number>(0.5); // default 50%
+
+    const handleLogout = async () => {
+        try {
+            await axios.post("http://localhost:8000/auth/logout", {}, { withCredentials: true });
+        } catch (e) {
+            console.warn("Logout error:", e);
+        } finally {
+            navigate("/");
+        }
+    };
 
 
     const handleOpenSheet = (index: number) => {
@@ -87,22 +99,37 @@ export default function AnswerSheet() {
         try {
             const response = await axios.post('http://localhost:8000/similarity', formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
+                withCredentials: true,
             });
 
             console.log("Response:", response.data);
             setSimilarityData(response.data);
             setCorrected(false);
-             // Set similarity scores to the state
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error uploading files:", error);
+            setCorrected(false);
+            if (error.response?.status === 401) {
+                alert("Session expired or unauthorized. Please log in.");
+                navigate("/");
+            } else {
+                alert(error.response?.data?.detail || "Error evaluating answer sheets.");
+            }
         }
     };
 
     return (
         <div className="w-screen h-screen flex">
             <div className="w-1/4 h-full bg-dy-red shadow-inner flex flex-col items-center py-5">
-                <h1 className="text-white text-4xl font-bold">AutoChecker</h1>
-                <form className="flex-col mt-10 bg-white rounded-2xl w-5/6 h-3/4 items-center py-5 px-5" onSubmit={handleSubmit}>
+                <div className="flex items-center justify-between w-5/6">
+                    <h1 className="text-white text-3xl font-bold">AutoChecker</h1>
+                    <button
+                        onClick={handleLogout}
+                        className="text-xs bg-dy-peach text-dy-red font-bold px-3 py-1 rounded-full hover:bg-white transition-colors"
+                    >
+                        Logout
+                    </button>
+                </div>
+                <form className="flex-col mt-6 bg-white rounded-2xl w-5/6 h-3/4 items-center py-5 px-5" onSubmit={handleSubmit}>
 
 
 {/* Answer Text Input */}
