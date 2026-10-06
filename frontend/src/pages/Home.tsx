@@ -61,18 +61,25 @@ export default function AnswerSheet() {
         setCorrected(true);
     };
 
+    const isWeightValid = Math.abs((textWeight + diagramWeight) - 1.0) < 0.001;
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         
 
-        if (!answerKey || files.length === 0) {
-            alert("Please upload both an answer key and answer sheets");
+        if (!answerKey || !image || files.length === 0) {
+            alert("Please provide the answer key text, diagram image, and answer sheets.");
+            return;
+        }
+
+        if (!isWeightValid) {
+            alert("Text weight and diagram weight must sum to 1.0");
             return;
         }
 
         const formData = new FormData();
         formData.append("answer_key_text", answerKey); // Append the actual answer key file
-        formData.append("answer_key_diagram", image as Blob); // Append the actual image file
+        formData.append("answer_key_diagram", image); // Append the actual image file
         files.forEach((file) => {
             formData.append("answer_sheets", file); // Append each answer sheet file
         });
@@ -157,9 +164,21 @@ export default function AnswerSheet() {
                         </div>
                     </div>
 
+                    {!isWeightValid && (
+                        <p className="text-red-500 text-xs font-semibold mt-2 text-center">
+                            Weights must sum to 1.0 (current: {(textWeight + diagramWeight).toFixed(2)})
+                        </p>
+                    )}
 
                     {answerKey && image ? (
-                        <button className="mt-5 ml-16 text-white font-semibold bg-dy-red px-5 py-3 rounded-3xl hover:bg-dy-peach hover:text-dy-red transition-colors duration-300 ease-in" onClick={handleCorrecting}>
+                        <button
+                            type="submit"
+                            disabled={!isWeightValid || corrected}
+                            className={`mt-5 ml-16 text-white font-semibold px-5 py-3 rounded-3xl transition-colors duration-300 ease-in ${
+                                !isWeightValid || corrected ? "bg-gray-400 cursor-not-allowed" : "bg-dy-red hover:bg-dy-peach hover:text-dy-red"
+                            }`}
+                            onClick={handleCorrecting}
+                        >
                             {corrected ? "AutoCorrecting...": "AutoCorrect"}
                         </button>
                     ) : null}
@@ -244,7 +263,7 @@ export default function AnswerSheet() {
                     <p className="text-gray-700 mt-2">Text Similarity: {similarityData[openedSheet][0].toFixed(2)}</p>
                     <p className="text-gray-700">Diagram Similarity: {similarityData[openedSheet][1].toFixed(2)}</p>
                     <p className="text-xl font-bold text-dy-red mt-3">
-                        Total Score: {((similarityData[openedSheet][0] + similarityData[openedSheet][1]) / 2 * marks).toFixed(1)}/{marks}
+                        Total Score: {((similarityData[openedSheet][0] * textWeight + similarityData[openedSheet][1] * diagramWeight) * marks).toFixed(1)}/{marks}
                     </p>
                 </div>
             </div>
