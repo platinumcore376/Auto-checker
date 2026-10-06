@@ -17,6 +17,13 @@ export default function AnswerSheet() {
     const [textWeight, setTextWeight] = useState<number>(0.5); // default 50%
     const [diagramWeight, setDiagramWeight] = useState<number>(0.5); // default 50%
 
+    const getImageUrl = (ref: string) => {
+        if (!ref) return "";
+        if (ref.startsWith("http://") || ref.startsWith("https://")) return ref;
+        if (ref.startsWith("/")) return `http://localhost:8000${ref}`;
+        return `data:image/png;base64,${ref}`;
+    };
+
     const handleLogout = async () => {
         try {
             await axios.post("http://localhost:8000/auth/logout", {}, { withCredentials: true });
@@ -267,24 +274,29 @@ export default function AnswerSheet() {
 
         {similarityData[openedSheet] && (
             <div className="mt-4 text-center w-full flex flex-col items-center gap-4">
-                <div className="w-3/4 flex flex-col items-center">
-                    <p className="text-dy-red font-bold mb-2">Extracted Text:</p>
-                    
-                    <img
-                        src={`data:image/png;base64,${similarityData[openedSheet][4]}`}
-                        alt="Diagram"
-                        className="w-96 h-auto rounded-lg border border-gray-300 shadow-md"
-                    />
-                </div>
+                {similarityData[openedSheet][4] ? (
+                    <div className="w-3/4 flex flex-col items-center">
+                        <p className="text-dy-red font-bold mb-2">Extracted Text:</p>
+                        <img
+                            src={getImageUrl(similarityData[openedSheet][4])}
+                            crossOrigin="use-credentials"
+                            alt="Extracted Text"
+                            className="w-96 h-auto rounded-lg border border-gray-300 shadow-md"
+                        />
+                    </div>
+                ) : null}
 
-                <div>
-                    <p className="text-dy-red font-bold mb-2">Extracted Diagram:</p>
-                    <img
-                        src={`data:image/png;base64,${similarityData[openedSheet][3]}`}
-                        alt="Diagram"
-                        className="w-96 h-auto rounded-lg border border-gray-300 shadow-md"
-                    />
-                </div>
+                {similarityData[openedSheet][3] ? (
+                    <div>
+                        <p className="text-dy-red font-bold mb-2">Extracted Diagram:</p>
+                        <img
+                            src={getImageUrl(similarityData[openedSheet][3])}
+                            crossOrigin="use-credentials"
+                            alt="Extracted Diagram"
+                            className="w-96 h-auto rounded-lg border border-gray-300 shadow-md"
+                        />
+                    </div>
+                ) : null}
 
                 <div>
                     <p className="text-gray-700 mt-2">Text Similarity: {similarityData[openedSheet][0].toFixed(2)}</p>

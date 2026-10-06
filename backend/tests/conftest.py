@@ -26,10 +26,11 @@ def mock_external_ml_and_cloud(monkeypatch):
     monkeypatch.setattr(sim_module, "load_sentence_transformer", lambda *args, **kwargs: (mock_st_model, "cpu"))
 
     # 2. Stub OpenCLIP
+    import torch
     mock_clip_model = MagicMock()
-    mock_clip_model.encode_image.side_effect = lambda tensor: MagicMock()
+    mock_clip_model.encode_image.side_effect = lambda tensor: torch.randn(1, 512)
     mock_clip_model.eval.return_value = None
-    mock_preprocess = lambda img: MagicMock()
+    mock_preprocess = lambda img: torch.randn(3, 224, 224)
 
     import Utils.image_similarity as img_sim_module
     monkeypatch.setattr(img_sim_module, "_model", mock_clip_model)

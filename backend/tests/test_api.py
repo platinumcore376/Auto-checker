@@ -101,3 +101,95 @@ def test_concurrent_requests_isolated(test_client, monkeypatch):
     assert r2.status_code == 200
     assert "0" in r1.json()
     assert "0" in r2.json()
+
+def test_similarity_image_streaming_endpoints(test_client, monkeypatch, tmp_path):
+    """PERF-08: Default mode returns lightweight image URLs and streams image bytes."""
+    dummy_page = Image.new("RGB", (300, 300), color="white")
+    monkeypatch.setattr("server.convert_from_bytes", lambda *args, **kwargs: [dummy_page])
+
+    d_path = str(tmp_path / "diagram.png")
+    t_path = str(tmp_path / "text.png")
+    Image.new("RGB", (50, 50), color="blue").save(d_path)
+    Image.new("RGB", (50, 50), color="black").save(t_path)
+
+    monkeypatch.setattr(
+        "server.segment_lines_and_find_diagrams",
+        lambda *args, **kwargs: {
+            "segmented_folder": str(tmp_path),
+            "text_crop_path": t_path,
+            "diagram_path": d_path,
+        }
+    )
+    monkeypatch.setattr("server.ocr_from_image", lambda *args, **kwargs: "Mocked OCR text")
+
+    response = test_client.post(
+        "/similarity",
+        data={"answer_key_text": "Sample text"},
+        files={
+            "answer_key_diagram": ("key.png", _create_png_bytes(), "image/png"),
+            "answer_sheets": ("student.pdf", _create_minimal_pdf_bytes(), "application/pdf"),
+        }
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "0" in data
+    text_sim, diagram_sim, text, diagram_url, text_crop_url = data["0"]
+    assert diagram_url.startswith("/api/sessions/")
+    assert text_crop_url.startswith("/api/sessions/")
+
+    # Fetch streamed diagram image
+    img_resp = test_client.get(diagram_url)
+    assert img_resp.status_code == 200
+    assert "image/" in img_resp.headers["content-type"]
+
+    # Fetch streamed text crop image
+    crop_resp = test_client.get(text_crop_url)
+    assert crop_resp.status_code == 200
+    assert "image/" in crop_resp.headers["content-type"]
+
+def test_similarity_embed_base64_mode(test_client, monkeypatch, tmp_path):
+    """PERF-08: Optional embed_base64=True returns inline base64 string for legacy callers."""
+    dummy_page = Image.new("RGB", (300, 300), color="white")
+    monkeypatch.setattr("server.convert_from_bytes", lambda *args, **kwargs: [dummy_page])
+
+    d_path = str(tmp_path / "diagram.png")
+    t_path = str(tmp_path / "text.png")
+    Image.new("RGB", (50, 50), color="blue").save(d_path)
+    Image.new("RGB", (50, 50), color="black").save(t_path)
+
+    monkeypatch.setattr(
+        "server.segment_lines_and_find_diagrams",
+        lambda *args, **kwargs: {
+            "segmented_folder": str(tmp_path),
+            "text_crop_path": t_path,
+            "diagram_path": d_path,
+        }
+    )
+
+    response = test_client.post(
+        "/similarity",
+        data={"answer_key_text": "Sample text", "embed_base64": "true"},
+        files={
+            "answer_key_diagram": ("key.png", _create_png_bytes(), "image/png"),
+            "answer_sheets": ("student.pdf", _create_minimal_pdf_bytes(), "application/pdf"),
+        }
+    )
+    assert response.status_code == 200
+    data = response.json()
+    _, _, _, diagram_ref, text_ref = data["0"]
+    assert not diagram_ref.startswith("/api/sessions/")
+    assert len(diagram_ref) > 0
+
+def test_session_image_security_validation(test_client):
+    """PERF-08: Invalid session IDs and image types are rejected."""
+    # Invalid session ID format (path traversal attempt)
+    resp = test_client.get("/api/sessions/../etc/passwd/sheets/0/diagram")
+    assert resp.status_code in (400, 404)
+
+    # Invalid image type
+    resp2 = test_client.get(f"/api/sessions/{'a'*32}/sheets/0/unknown_type")
+    assert resp2.status_code == 400
+
+    # Non-existent session
+    resp3 = test_client.get(f"/api/sessions/{'b'*32}/sheets/0/diagram")
+    assert resp3.status_code == 404

@@ -8,10 +8,14 @@ import tempfile
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 
+import re
+import time
+import uuid
+
 import numpy as np
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pdf2image import convert_from_bytes, pdfinfo_from_bytes
 from PIL import Image
 
@@ -28,6 +32,25 @@ from Utils.similarity import load_sentence_transformer, text_similarity
 
 logging.basicConfig(level=getattr(logging, config.LOG_LEVEL, logging.INFO))
 logger = logging.getLogger("autochecker.server")
+
+# Ephemeral image session store for streaming diagrams & text crops (PERF-08)
+SESSION_STORE_DIR = os.path.join(tempfile.gettempdir(), "autochecker_sessions")
+os.makedirs(SESSION_STORE_DIR, exist_ok=True)
+
+def cleanup_old_sessions(max_age_seconds: int = 3600):
+    """Prunes temporary image session folders older than max_age_seconds (PERF-08)."""
+    now = time.time()
+    try:
+        if os.path.exists(SESSION_STORE_DIR):
+            for entry in os.scandir(SESSION_STORE_DIR):
+                if entry.is_dir():
+                    try:
+                        if now - entry.stat().st_mtime > max_age_seconds:
+                            shutil.rmtree(entry.path, ignore_errors=True)
+                    except Exception:
+                        pass
+    except Exception as e:
+        logger.warning(f"Error during image session cleanup: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -123,11 +146,13 @@ async def similarity(
     answer_key_text: str = Form(...),
     answer_key_diagram: UploadFile = File(...),
     answer_sheets: List[UploadFile] = File(...),
+    embed_base64: bool = Form(False),
     current_user: dict = Depends(require_user),
 ):
     """
     Evaluates student answer sheets against textual and diagrammatic keys.
     Uses request-isolated directories (BUG-01) and safe per-sheet mapping (BUG-03).
+    Supports image streaming endpoints to eliminate 30-50MB base64 JSON bloat (PERF-08).
     """
     if not answer_key_text.strip():
         raise HTTPException(status_code=400, detail="Answer key text cannot be empty.")
@@ -151,6 +176,13 @@ async def similarity(
     # Request-isolated working directory (S1 / BUG-01)
     req_work_dir = tempfile.mkdtemp(prefix="autochecker_req_")
     logger.info(f"Created isolated request directory: {req_work_dir}")
+
+    # Ephemeral session directory for image streaming (PERF-08)
+    session_id = uuid.uuid4().hex
+    session_dir = os.path.join(SESSION_STORE_DIR, session_id)
+    if not embed_base64:
+        os.makedirs(session_dir, exist_ok=True)
+        cleanup_old_sessions()
 
     try:
         response_data: Dict[int, list] = {}
@@ -218,7 +250,7 @@ async def similarity(
 
             # Diagram similarity scoring (BUG-03, BUG-08)
             diagram_score = 0.0
-            encoded_diagram = ""
+            diagram_ref = ""
             if diagram_path and os.path.exists(diagram_path):
                 try:
                     with Image.open(diagram_path) as d_img:
@@ -231,32 +263,51 @@ async def similarity(
                         if len(sim_scores) > 0:
                             diagram_score = float(sim_scores[0])
 
-                        buf = io.BytesIO()
-                        d_img_rgb.save(buf, format="PNG")
-                        encoded_diagram = base64.b64encode(buf.getvalue()).decode("utf-8")
+                        if embed_base64:
+                            buf = io.BytesIO()
+                            d_img_rgb.save(buf, format="PNG")
+                            diagram_ref = base64.b64encode(buf.getvalue()).decode("utf-8")
+                        else:
+                            save_path = os.path.join(session_dir, f"sheet_{idx}_diagram.webp")
+                            try:
+                                d_img_rgb.save(save_path, format="WEBP", quality=85)
+                            except Exception:
+                                save_path = os.path.join(session_dir, f"sheet_{idx}_diagram.png")
+                                d_img_rgb.save(save_path, format="PNG")
+                            diagram_ref = f"/api/sessions/{session_id}/sheets/{idx}/diagram"
                 except Exception as e:
                     logger.error(f"Diagram similarity calculation failed for sheet {idx}: {e}")
                     diagram_score = 0.0
-                    encoded_diagram = ""
+                    diagram_ref = ""
 
-            # Text crop base64 encoding
-            encoded_text_crop = ""
+            # Text crop saving / encoding (PERF-08)
+            text_crop_ref = ""
             if text_crop_path and os.path.exists(text_crop_path):
                 try:
                     with Image.open(text_crop_path) as t_img:
-                        buf = io.BytesIO()
-                        t_img.save(buf, format="PNG")
-                        encoded_text_crop = base64.b64encode(buf.getvalue()).decode("utf-8")
+                        t_img_rgb = t_img.convert("RGB")
+                        if embed_base64:
+                            buf = io.BytesIO()
+                            t_img_rgb.save(buf, format="PNG")
+                            text_crop_ref = base64.b64encode(buf.getvalue()).decode("utf-8")
+                        else:
+                            save_path = os.path.join(session_dir, f"sheet_{idx}_text.webp")
+                            try:
+                                t_img_rgb.save(save_path, format="WEBP", quality=85)
+                            except Exception:
+                                save_path = os.path.join(session_dir, f"sheet_{idx}_text.png")
+                                t_img_rgb.save(save_path, format="PNG")
+                            text_crop_ref = f"/api/sessions/{session_id}/sheets/{idx}/text"
                 except Exception as e:
-                    logger.warning(f"Failed to encode text crop for sheet {idx}: {e}")
-                    encoded_text_crop = ""
+                    logger.warning(f"Failed to process text crop for sheet {idx}: {e}")
+                    text_crop_ref = ""
 
             response_data[idx] = [
                 float(text_sim),
                 float(diagram_score),
                 sheet_text,
-                encoded_diagram,
-                encoded_text_crop,
+                diagram_ref,
+                text_crop_ref,
             ]
 
         return JSONResponse(content=response_data)
@@ -265,3 +316,33 @@ async def similarity(
         # Clean up temporary request directory (BUG-01)
         shutil.rmtree(req_work_dir, ignore_errors=True)
         logger.info(f"Cleaned up request directory: {req_work_dir}")
+
+
+@app.get("/api/sessions/{session_id}/sheets/{sheet_idx}/{image_type}")
+async def get_session_image(
+    session_id: str,
+    sheet_idx: int,
+    image_type: str,
+    current_user: dict = Depends(require_user),
+):
+    """
+    Streams cropped diagram or text crop images for a session and sheet (PERF-08).
+    Eliminates high-overhead base64 payloads from the primary JSON evaluation response.
+    """
+    if not re.match(r"^[a-f0-9]{32}$", session_id):
+        raise HTTPException(status_code=400, detail="Invalid session ID format.")
+
+    if image_type not in ("diagram", "text"):
+        raise HTTPException(status_code=400, detail="Invalid image type. Expected 'diagram' or 'text'.")
+
+    session_dir = os.path.join(SESSION_STORE_DIR, session_id)
+    webp_path = os.path.join(session_dir, f"sheet_{sheet_idx}_{image_type}.webp")
+    png_path = os.path.join(session_dir, f"sheet_{sheet_idx}_{image_type}.png")
+
+    if os.path.isfile(webp_path):
+        return FileResponse(webp_path, media_type="image/webp")
+    elif os.path.isfile(png_path):
+        return FileResponse(png_path, media_type="image/png")
+    else:
+        raise HTTPException(status_code=404, detail="Image not found for this sheet.")
+
