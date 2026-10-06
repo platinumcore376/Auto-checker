@@ -3,7 +3,10 @@ import os
 import re
 import logging
 from PIL import Image
-import google.generativeai as genai  # Retained per plan; not configured at runtime
+try:
+    import google.generativeai as genai  # Retained per plan; not configured at runtime
+except ImportError:
+    genai = None
 from google.cloud import vision
 
 logger = logging.getLogger("autochecker.ocr")
