@@ -1,13 +1,29 @@
 import cv2
 import numpy as np
 import os
-from pdf2image import convert_from_path
 import shutil
+import logging
+from typing import Dict, List, Optional, Tuple
+from config import (
+    SEGMENTATION_MIN_HEIGHT,
+    SEGMENTATION_PADDING,
+    HISTOGRAM_LINE_THRESHOLD,
+    DIAGRAM_MIN_WIDTH,
+    DIAGRAM_MIN_HEIGHT,
+    TEXT_CROP_PADDING,
+)
 
-diagram_count = 0
-text_count = 0
+logger = logging.getLogger("autochecker.segmentation")
 
-def correct_tilt(image):
+class SegmentationError(Exception):
+    """Base exception for line segmentation and diagram extraction errors."""
+    pass
+
+class NoTextDetectedError(SegmentationError):
+    """Raised when no horizontal text lines can be identified in the image."""
+    pass
+
+def correct_tilt(image: np.ndarray) -> np.ndarray:
     """Corrects tilt in an image using Hough Line Transform."""
     try:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -23,96 +39,129 @@ def correct_tilt(image):
                     angles.append(90 - angle)
 
             if angles:
-                avg_angle = np.mean(angles)
+                avg_angle = float(np.mean(angles))
                 h, w = image.shape[:2]
                 center = (w // 2, h // 2)
                 rotation_matrix = cv2.getRotationMatrix2D(center, avg_angle, 1.0)
                 corrected_image = cv2.warpAffine(image, rotation_matrix, (w, h), flags=cv2.INTER_LINEAR)
                 return corrected_image
     except Exception as e:
-        print(f"[Error] Tilt correction failed: {str(e)}")
+        logger.warning(f"Tilt correction skipped due to warning: {str(e)}")
     return image
 
-def extract_diagram(img_path, output_folder):
-    global diagram_count
+def extract_diagram(img_path: str, output_folder: str, sheet_idx: int = 0) -> Optional[str]:
+    """
+    Extracts diagram from negative text area image.
+    Returns the file path of the saved diagram if found, or None if no diagram is present (BUG-05).
+    """
     try:
         img = cv2.imread(img_path)
         if img is None:
-            raise ValueError("Image not found or unreadable.")
+            logger.warning(f"Cannot read image for diagram extraction: {img_path}")
+            return None
 
         gray_no_text = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         _, binary_no_text = cv2.threshold(gray_no_text, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-
         contours, _ = cv2.findContours(binary_no_text, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        os.makedirs(output_folder, exist_ok=True)
 
         for idx, cnt in enumerate(contours[::-1]):
             x, y, w, h = cv2.boundingRect(cnt)
-            if w > 40 and h > 400:
+            if w > DIAGRAM_MIN_WIDTH and h > DIAGRAM_MIN_HEIGHT:
                 diagram_img = img[y:y+h, x:x+w]
-                print(f"Diagram {diagram_count} detected and saved.")
-                cv2.imwrite(f"{output_folder}/diagram_{diagram_count}.png", diagram_img)
-                diagram_count += 1
-                return 0
+                diagram_filename = f"diagram_{sheet_idx}.png"
+                diagram_path = os.path.join(output_folder, diagram_filename)
+                cv2.imwrite(diagram_path, diagram_img)
+                logger.info(f"Diagram detected and saved at {diagram_path}")
+                return diagram_path
 
-        print(f"No valid diagram contours found in {img_path}")
-
-    except Exception as e:
-        print(f"[Error] Diagram extraction failed: {str(e)}")
-    return None
-
-def visualize_text_region(img, filtered_line_segments, output_path):
-    """Removes the text region by replacing it with a white background."""
-    try:
-        global text_count
-        if not os.path.exists('output/texts'):
-            os.makedirs('output/texts')
-        img_copy = img.copy()
-        img_h, img_w = img.shape[:2]
-
-        if filtered_line_segments:
-            min_y = min([seg[0] for seg in filtered_line_segments])
-            max_y = max([seg[1] for seg in filtered_line_segments])
-            
-            text_crop = img_copy[max(min_y - 40, 0):min(max_y + 40, img_h), :]
-            cv2.imwrite(f"output/texts/text_{text_count}.png", text_crop)
-            cv2.imwrite(f"output/text.png", text_crop)
-            print(f"Text region {text_count} cropped and saved at 'output/texts/text_{text_count}.png'")
-            text_count += 1
-
-            img_copy[max(min_y - 40, 0):min(max_y + 40, img_h), :] = (255, 255, 255)
-            cv2.imwrite(output_path, img_copy)
-            print(f"Text removed image saved at {output_path}")
-        else:
-            print("[Warning] No text segments found to visualize.")
+        logger.info(f"No valid diagram contours found in sheet {sheet_idx}")
+        return None
 
     except Exception as e:
-        print(f"[Error] Text region visualization failed: {str(e)}")
+        logger.error(f"Diagram extraction failed on sheet {sheet_idx}: {str(e)}")
+        return None
 
-def segment_lines_and_find_diagrams(img, output_folder="output", min_height_threshold=30, padding=10, min_contour_width=5000):
+def visualize_text_region(
+    img: np.ndarray,
+    filtered_line_segments: List[Tuple[int, int]],
+    output_folder: str,
+    sheet_idx: int = 0
+) -> Tuple[Optional[str], str]:
+    """
+    Crops the text region and produces a text-removed image for diagram extraction.
+    Returns (text_crop_path, text_removed_image_path).
+    """
+    text_dir = os.path.join(output_folder, "texts")
+    os.makedirs(text_dir, exist_ok=True)
+
+    img_copy = img.copy()
+    img_h, _ = img.shape[:2]
+
+    text_removed_path = os.path.join(output_folder, "text_removed.png")
+    text_crop_path = None
+
+    if filtered_line_segments:
+        min_y = min([seg[0] for seg in filtered_line_segments])
+        max_y = max([seg[1] for seg in filtered_line_segments])
+
+        start_y = max(min_y - TEXT_CROP_PADDING, 0)
+        end_y = min(max_y + TEXT_CROP_PADDING, img_h)
+
+        text_crop = img_copy[start_y:end_y, :]
+        text_crop_path = os.path.join(text_dir, f"text_{sheet_idx}.png")
+        cv2.imwrite(text_crop_path, text_crop)
+        logger.info(f"Text crop saved to {text_crop_path}")
+
+        # Mask text region with white background for diagram isolation
+        img_copy[start_y:end_y, :] = (255, 255, 255)
+        cv2.imwrite(text_removed_path, img_copy)
+    else:
+        logger.warning(f"No text line segments to visualize for sheet {sheet_idx}")
+        cv2.imwrite(text_removed_path, img_copy)
+
+    return text_crop_path, text_removed_path
+
+def segment_lines_and_find_diagrams(
+    img,
+    output_folder: str,
+    sheet_idx: int = 0,
+    min_height_threshold: int = SEGMENTATION_MIN_HEIGHT,
+    padding: int = SEGMENTATION_PADDING,
+) -> Dict[str, Optional[str]]:
+    """
+    Performs tilt correction, horizontal line segmentation, text cropping, and diagram extraction.
+    All outputs are saved strictly within output_folder (S1 request isolation).
+    Returns a dictionary of result paths:
+      {"segmented_folder": ..., "text_crop_path": ..., "diagram_path": ...}
+    """
     try:
-        segmented_folder = os.path.join(output_folder, "segmented_lines")
-        diagram_folder = os.path.join(output_folder, "diagrams")
+        # Support both NumPy array and PIL Image inputs
+        if not isinstance(img, np.ndarray):
+            img = np.array(img)
 
-        if os.path.exists(segmented_folder):
-            shutil.rmtree(segmented_folder)
-        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        # Convert to BGR for OpenCV processing
+        if len(img.shape) == 3 and img.shape[2] == 3:
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
         os.makedirs(output_folder, exist_ok=True)
-        cv2.imwrite(f"{output_folder}/original_image.png", img)
+        cv2.imwrite(os.path.join(output_folder, "original_image.png"), img)
 
         img = correct_tilt(img)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                       cv2.THRESH_BINARY_INV, 15, 10)
+        binary = cv2.adaptiveThreshold(
+            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY_INV, 15, 10
+        )
 
         hist = np.sum(binary, axis=1)
-        print(hist)
-        threshold = 50000 #np.max(hist) * 0.2
-        print(threshold)
+        threshold = HISTOGRAM_LINE_THRESHOLD
         lines = np.where(hist > threshold)[0]
 
         if len(lines) == 0:
-            raise ValueError("No horizontal text lines detected.")
+            raise NoTextDetectedError(f"No horizontal text lines detected in sheet {sheet_idx}.")
 
         line_segments = []
         start = lines[0]
@@ -126,15 +175,18 @@ def segment_lines_and_find_diagrams(img, output_folder="output", min_height_thre
         if lines[-1] - start >= min_height_threshold:
             line_segments.append((start, lines[-1]))
 
-
+        segmented_folder = os.path.join(output_folder, "segmented_lines")
+        diagram_folder = os.path.join(output_folder, "diagrams")
         os.makedirs(segmented_folder, exist_ok=True)
         os.makedirs(diagram_folder, exist_ok=True)
 
-        img_height, img_width = img.shape[:2]
+        img_height = img.shape[0]
         filtered_line_segments = []
 
         for y_start, y_end in line_segments:
             line_segment = binary[y_start:y_end, :]
+            if line_segment.shape[0] == 0:
+                continue
             left_whitespace = np.sum(line_segment[:, :20] == 0) / (20 * line_segment.shape[0])
             right_whitespace = np.sum(line_segment[:, -20:] == 0) / (20 * line_segment.shape[0])
 
@@ -142,19 +194,27 @@ def segment_lines_and_find_diagrams(img, output_folder="output", min_height_thre
                 filtered_line_segments.append((y_start, y_end))
 
         for idx, (y_start, y_end) in enumerate(filtered_line_segments):
-            y_start_pad = max(0, y_start - 40)
+            y_start_pad = max(0, y_start - TEXT_CROP_PADDING)
             y_end_pad = min(img_height, y_end + padding)
             line_img = img[y_start_pad:y_end_pad, :]
-            cv2.imwrite(f"{segmented_folder}/line_{idx+1}.png", line_img)
+            cv2.imwrite(os.path.join(segmented_folder, f"line_{idx+1}.png"), line_img)
 
-        print(f"Segmented {len(filtered_line_segments)} text lines and saved in '{segmented_folder}'.")
+        logger.info(f"Segmented {len(filtered_line_segments)} text lines in sheet {sheet_idx}")
 
-        visualize_text_region(img, filtered_line_segments, os.path.join(output_folder, "text_bounding_box.png"))
-        diagram_folder = extract_diagram(os.path.join(output_folder, "text_bounding_box.png"), diagram_folder)
+        text_crop_path, text_removed_path = visualize_text_region(
+            img, filtered_line_segments, output_folder, sheet_idx=sheet_idx
+        )
 
-        return segmented_folder, diagram_folder
+        diagram_path = extract_diagram(text_removed_path, diagram_folder, sheet_idx=sheet_idx)
 
+        return {
+            "segmented_folder": segmented_folder,
+            "text_crop_path": text_crop_path,
+            "diagram_path": diagram_path,
+        }
+
+    except NoTextDetectedError:
+        raise
     except Exception as e:
-        print(f"[Error] Line segmentation and diagram detection failed: {str(e)}")
-        return None, None
-
+        logger.error(f"Segmentation failed on sheet {sheet_idx}: {str(e)}")
+        raise SegmentationError(f"Segmentation failed: {str(e)}") from e

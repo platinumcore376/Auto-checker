@@ -1,69 +1,56 @@
-import cv2
-import numpy as np
-from PIL import Image
-import google.generativeai as genai
 import io
-from google.cloud import vision
 import os
-
-
-def preprocess_image(image):
-    """
-    Preprocess the image for better OCR accuracy.
-    """
-    # Convert image to grayscale
-    gray = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
-    
-    # Apply binary thresholding to remove noise and make the text stand out
-    _, thresh = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-    
-    # Denoising using morphological transformations (optional)
-    kernel = np.ones((1, 1), np.uint8)
-    denoised = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-    
-    return denoised
-
-import os
-from google.cloud import vision
-import io
+import re
+import logging
 from PIL import Image
+import google.generativeai as genai  # Retained per plan; not configured at runtime
+from google.cloud import vision
 
-def ocr_from_image(segmented_folder):
+logger = logging.getLogger("autochecker.ocr")
+
+def _extract_sort_index(filename: str) -> int:
     """
-    Perform OCR on all images in the segmented folder and return the concatenated text in order.
+    Safely extracts an integer index from a filename like line_1.png or segment_12.png.
+    Falls back gracefully to infinity if no integer is found to prevent sorting crashes (BUG-07).
     """
+    match = re.search(r'(\d+)', filename)
+    return int(match.group(1)) if match else float('inf')
+
+def ocr_from_image(segmented_folder: str) -> str:
+    """
+    Performs OCR on all PNG line images in the segmented folder and returns concatenated text.
+    Handles empty folders and sorts files robustly using regex.
+    """
+    if not os.path.exists(segmented_folder):
+        logger.warning(f"Segmented folder does not exist: {segmented_folder}")
+        return ""
+
     client = vision.ImageAnnotatorClient()
-
-    # Initialize the plain_text variable to store the concatenated OCR results
     full_text = ""
 
-    # List all files in the segmented folder and sort them to ensure order
-    filenames = [filename for filename in os.listdir(segmented_folder) if filename.endswith(".png")]
-    filenames.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))  # Sort by the number in the filename
+    filenames = [f for f in os.listdir(segmented_folder) if f.lower().endswith(".png")]
+    filenames.sort(key=_extract_sort_index)
 
-    # Process each image in the correct order
+    logger.debug(f"Processing {len(filenames)} segmented line images in {segmented_folder}")
+
     for filename in filenames:
         image_path = os.path.join(segmented_folder, filename)
-        image = Image.open(image_path)
+        try:
+            with Image.open(image_path) as image:
+                img_byte_arr = io.BytesIO()
+                image.save(img_byte_arr, format='PNG')
+                content = img_byte_arr.getvalue()
 
-        img_byte_arr = io.BytesIO()
-        image.save(img_byte_arr, format='PNG')
-        content = img_byte_arr.getvalue()
+            gcv_image = vision.Image(content=content)
+            response = client.document_text_detection(image=gcv_image)
 
-        gcv_image = vision.Image(content=content)
+            if response.error.message:
+                raise RuntimeError(f"Google Cloud Vision API error: {response.error.message}")
 
-        # Perform text detection using Google Cloud Vision API
-        response = client.document_text_detection(image=gcv_image)
-
-        # Check for errors
-        if response.error.message:
-            raise Exception(
-                '{}\nFor more info on error messages, check: '
-                'https://cloud.google.com/apis/design/errors'.format(response.error.message)
-            )
-
-        # Extract text from the response
-        text = response.full_text_annotation.text
-        full_text += text + " "
+            if response.full_text_annotation and response.full_text_annotation.text:
+                full_text += response.full_text_annotation.text.strip() + " "
+        except Exception as e:
+            logger.error(f"Error processing OCR on {filename}: {str(e)}")
+            raise
 
     return full_text.strip()
