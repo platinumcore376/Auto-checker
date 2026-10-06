@@ -89,22 +89,30 @@ async def similarity(
     shutil.rmtree("output/diagrams")
     response_data = {}
     for i in range(len(text_similarities)):
-        # Encode diagram image
-        buffer_diagram = BytesIO()
-        diagram_images[i].save(buffer_diagram, format="PNG")
-        encoded_image = base64.b64encode(buffer_diagram.getvalue()).decode('utf-8')
-        buffer_diagram.close()
+        # Encode diagram image safely if present
+        if i < len(diagram_images) and i < len(diagram_similarities):
+            buffer_diagram = BytesIO()
+            diagram_images[i].save(buffer_diagram, format="PNG")
+            encoded_image = base64.b64encode(buffer_diagram.getvalue()).decode('utf-8')
+            buffer_diagram.close()
+            diagram_score = float(diagram_similarities[i])
+        else:
+            encoded_image = ""
+            diagram_score = 0.0
 
         # Encode text image
         buffer_text = BytesIO()
-        text_images[i].save(buffer_text, format="PNG")
-        encoded_text_image = base64.b64encode(buffer_text.getvalue()).decode('utf-8')
+        if i < len(text_images):
+            text_images[i].save(buffer_text, format="PNG")
+            encoded_text_image = base64.b64encode(buffer_text.getvalue()).decode('utf-8')
+        else:
+            encoded_text_image = ""
         buffer_text.close()
 
 
         response_data[i] = [
             float(text_similarities[i]),
-            float(diagram_similarities[i]),
+            diagram_score,
             texts[i],
             encoded_image,
             encoded_text_image,

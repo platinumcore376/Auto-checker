@@ -16,6 +16,7 @@ def _get_model():
             pretrained='openai'
         )
         _model = _model.to(_device)
+        _model.eval()
     return _model, _preprocess, _device
 
 def transform(x):
@@ -28,6 +29,8 @@ def transform(x):
 
 
 def image_similarity(truth_file, image_files):
+    if not image_files:
+        return []
     import torch
     model, preprocess, device = _get_model()
 
