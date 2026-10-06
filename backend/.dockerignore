@@ -1,0 +1,12 @@
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.git/
+output/
+_audit/
+*.tsbuildinfo
+.vite/
+.env
+.env.*

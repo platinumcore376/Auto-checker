@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+.git/
+output/
+_audit/
+*.tsbuildinfo
+.vite/
+.env
+.env.*
