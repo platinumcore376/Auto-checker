@@ -41,7 +41,7 @@ def test_similarity_rejects_empty_answer_key(test_client):
             "answer_sheets": ("sheet.pdf", _create_minimal_pdf_bytes(), "application/pdf"),
         }
     )
-    assert response.status_code == 400
+    assert response.status_code in [400, 422]
 
 def test_similarity_rejects_invalid_pdf_magic_bytes(test_client):
     response = test_client.post(

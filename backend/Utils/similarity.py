@@ -61,11 +61,14 @@ def text_similarity(
     similarity = cosine_similarity([key_embeddings], [test_embeddings])[0][0]
     sim_value = float(similarity.item() if hasattr(similarity, "item") else similarity)
 
+    # Clamp raw similarity to valid [0.0, 1.0] range to prevent floating point overflow
+    sim_value = max(0.0, min(1.0, round(sim_value, 6)))
+
     if SCORE_ROUNDING == "round":
         final_score = round(sim_value, 2)
     else:
-        # Default behavior: ceil to nearest 0.1
-        final_score = ceil(sim_value * 10) / 10
+        # Default behavior: ceil to nearest 0.1, clamped at 1.0
+        final_score = min(1.0, ceil(sim_value * 10) / 10)
 
     logger.debug(f"Computed text similarity: raw={sim_value:.4f}, final={final_score}")
     return final_score
