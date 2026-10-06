@@ -1,30 +1,39 @@
 # Ignore Python cache and compiled files
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
 # Ignore virtual environments
+.venv/
 venv/
+ENV/
+env/
+
+# GCP Service Account Credentials & Environment Secrets
+gcp-credentials*.json
+service-account*.json
+*.secret.json
 .env
-*.env
+.env.*
+!.env.example
 
 # Ignore backend-specific files
-backend/peerless-list-436018-s4-bf957558862a.json
 backend/__pycache__/
 backend/Utils/Imag/
-backend/analysis/
+output/
 
 # Node.js - Ignore all node_modules
 **/node_modules/
 
-# Ignore build artifacts
+# Ignore build artifacts & caches
 dist/
 build/
+.vite/
+*.tsbuildinfo
 
-# Frontend - Ignore default React build folders
-frontend/my-react-app/node_modules/
-frontend/public/
-
-# Logs
+# Audit & logs
+_audit/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -33,9 +42,3 @@ yarn-error.log*
 # OS-specific
 .DS_Store
 Thumbs.db
-
-.venv/
-_audit/
-*.tsbuildinfo
-.vite/
-output/
