@@ -10,15 +10,16 @@ def sigmoid_like_transform(x):
     y = 0.5 + 0.5 * torch.sigmoid(steepness * (x - center))
     return y
 
-import matplotlib.pyplot as plt
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
 
-x_vals = torch.linspace(0, 1, 300)
-y_vals = sigmoid_like_transform(x_vals)
+    x_vals = torch.linspace(0, 1, 300)
+    y_vals = sigmoid_like_transform(x_vals)
 
-plt.plot(x_vals.numpy(), y_vals.numpy(), label='Transformed Score', color='blue')
-plt.xlabel("Original Score")
-plt.ylabel("Transformed Score")
-plt.grid(True)
-plt.legend()
-plt.show()
+    plt.plot(x_vals.numpy(), y_vals.numpy(), label='Transformed Score', color='blue')
+    plt.xlabel("Original Score")
+    plt.ylabel("Transformed Score")
+    plt.grid(True)
+    plt.legend()
+    plt.show()
 

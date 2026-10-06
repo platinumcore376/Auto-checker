@@ -204,28 +204,6 @@ def generate_similarity_table(key_answers, test_answers, domain_terms=None, mode
     
     return df
 
-# Example usage
-key_answers = [
-    "Machine learning is a branch of artificial intelligence that enables computers to learn the data , identify patterns , and make decisions with minimal human intervention . Instead of being explicitly programmed for specific tasks , Machine learning algorithms analyze and interpret large datasets to Correlations that can be used for predictions or decision making . These algorithms Continuously improve their accuracy over time as they process more datasets to unconver trends and correlations that can be used for predictions or decision making. These algorithms continuously improve their accuracy over time as they process more data."
-] * 3
-
-test_answers = [
-    "Machine learning is a branch of artifical intelligence that enables computers to learn from the data, identify patterns and make decisions with minimal human intervention. Instead of being explicitly programmed for specific tasks, machine learning algorithms analyze and interpret large datasets to uncover trends and correlations that can be used for predictions or decision making. These algorithms continuously improve their accuracy over time as they process more data.", 
-    "Machine learning is a field of artificial intelligence that allows computers to learn from data, recognize patterns and make decisions with minimal human involvement. Rather than being explicity programmed for specific tasks, machine learning algorithms examine and interpret large datasets to identify meaningful relationships that aid in predictions or decision making. These algorithms continuously refine their accuracy over time by processing increase amounts of data, uncovering trends and correlations that enhance their predictive capabilities over time gradually.",
-    "Cyber bullying is one of the significant problems that need to be eradicated. Due to cyber bullying, youngsters face many issues related to their health like depression, low self esteem, suicidal thoughts and it even leads to low academic performances. Cyber bullying is a form of bullying that takes place over digital devices like computers, tablets and mobile phones. It can take many forms such as sending mean messages, spreading rumors, sharing embarrassing photos or videos and impersonating someone online. Cyber bullying can happen 24/7 and it can be difficult to escape from it. It is important to raise awareness about cyber bullying and its effects on mental health. Schools, parents and communities should work together to educate youngsters about the dangers of cyber bullying and how to prevent it.",
-]
-
-domain_terms = [
-    "algorithms", "artificial intelligence", "data", "patterns", "predictions",
-    "decisions", "machine learning", "correlations", "accuracy", "datasets",
-    "uncover", "trends", "correlations", "tasks", "programmed", "interpret",
-    "branch", "learn", "identify", "human intervention", "explicitly",
-    "analyze", "interpret", "large datasets", "correlations", "decision making",
-    "improve", "accuracy", "process", "data", "uncover", "trends",
-]
-
-similarity_df = generate_similarity_table(key_answers, test_answers, domain_terms, models=model_names)
-
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -260,5 +238,26 @@ def visualize_similarity_comparison(similarity_df):
     plt.savefig('metric_correlation_heatmap.png', dpi=300)
     plt.show()
 
-# Visualize the results
-visualize_similarity_comparison(similarity_df)
+if __name__ == '__main__':
+    # Example usage
+    key_answers = [
+        "Machine learning is a branch of artificial intelligence that enables computers to learn the data , identify patterns , and make decisions with minimal human intervention . Instead of being explicitly programmed for specific tasks , Machine learning algorithms analyze and interpret large datasets to Correlations that can be used for predictions or decision making . These algorithms Continuously improve their accuracy over time as they process more datasets to unconver trends and correlations that can be used for predictions or decision making. These algorithms continuously improve their accuracy over time as they process more data."
+    ] * 3
+
+    test_answers = [
+        "Machine learning is a branch of artifical intelligence that enables computers to learn from the data, identify patterns and make decisions with minimal human intervention. Instead of being explicitly programmed for specific tasks, machine learning algorithms analyze and interpret large datasets to uncover trends and correlations that can be used for predictions or decision making. These algorithms continuously improve their accuracy over time as they process more data.", 
+        "Machine learning is a field of artificial intelligence that allows computers to learn from data, recognize patterns and make decisions with minimal human involvement. Rather than being explicity programmed for specific tasks, machine learning algorithms examine and interpret large datasets to identify meaningful relationships that aid in predictions or decision making. These algorithms continuously refine their accuracy over time by processing increase amounts of data, uncovering trends and correlations that enhance their predictive capabilities over time gradually.",
+        "Cyber bullying is one of the significant problems that need to be eradicated. Due to cyber bullying, youngsters face many issues related to their health like depression, low self esteem, suicidal thoughts and it even leads to low academic performances. Cyber bullying is a form of bullying that takes place over digital devices like computers, tablets and mobile phones. It can take many forms such as sending mean messages, spreading rumors, sharing embarrassing photos or videos and impersonating someone online. Cyber bullying can happen 24/7 and it can be difficult to escape from it. It is important to raise awareness about cyber bullying and its effects on mental health. Schools, parents and communities should work together to educate youngsters about the dangers of cyber bullying and how to prevent it.",
+    ]
+
+    domain_terms = [
+        "algorithms", "artificial intelligence", "data", "patterns", "predictions",
+        "decisions", "machine learning", "correlations", "accuracy", "datasets",
+        "uncover", "trends", "correlations", "tasks", "programmed", "interpret",
+        "branch", "learn", "identify", "human intervention", "explicitly",
+        "analyze", "interpret", "large datasets", "correlations", "decision making",
+        "improve", "accuracy", "process", "data", "uncover", "trends",
+    ]
+
+    similarity_df = generate_similarity_table(key_answers, test_answers, domain_terms, models=model_names)
+    visualize_similarity_comparison(similarity_df)
